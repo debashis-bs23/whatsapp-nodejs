@@ -1,16 +1,21 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const express = require('express');
 const QRCode = require('qrcode');
+const puppeteer = require('puppeteer'); // <-- add this
 
 const app = express();
 app.use(express.json());
 
 let latestQR = null; // store QR for web
 
-// Initialize WhatsApp client
+// Initialize WhatsApp client with Render-compatible Puppeteer
 const client = new Client({
     authStrategy: new LocalAuth(),
-    puppeteer: { headless: true }
+    puppeteer: {
+        headless: true,
+        executablePath: puppeteer.executablePath(), // use Puppeteer's Chromium
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    }
 });
 
 // Rate-limited message queue
