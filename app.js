@@ -61,7 +61,6 @@ app.get('/qr', (req, res) => {
 });
 
 
-// API to send message
 app.post('/send', async (req, res) => {
     try {
         let { phone, message } = req.body;
