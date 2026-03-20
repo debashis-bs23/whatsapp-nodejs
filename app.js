@@ -5,33 +5,52 @@ const QRCode = require('qrcode');
 const app = express();
 app.use(express.json());
 
-// Store latest QR
-let latestQR = null;
+let latestQR = null; // store QR for web
 
-// WhatsApp client
+// Initialize WhatsApp client
 const client = new Client({
     authStrategy: new LocalAuth(),
-    puppeteer: {
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-    }
+    puppeteer: { headless: true }
 });
 
-// Generate QR (store as image)
+// Rate-limited message queue
+let messageQueue = [];
+let sending = false;
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function processQueue() {
+    if (sending || messageQueue.length === 0) return;
+    sending = true;
+
+    while (messageQueue.length > 0) {
+        const { chatId, message } = messageQueue.shift();
+        try {
+            await client.sendMessage(chatId, message);
+            console.log(`✅ Message sent to ${chatId}`);
+
+            // Random delay 3–8 seconds to avoid ban
+            await sleep(3000 + Math.floor(Math.random() * 5000));
+        } catch (err) {
+            console.error(`❌ Failed to send message to ${chatId}:`, err);
+        }
+    }
+
+    sending = false;
+}
+
+// QR event
 client.on('qr', async (qr) => {
     console.log('📱 QR received');
-
-    try {
-        latestQR = await QRCode.toDataURL(qr);
-    } catch (err) {
-        console.error('QR generation failed:', err);
-    }
+    latestQR = await QRCode.toDataURL(qr);
 });
 
 // Ready
 client.on('ready', () => {
-    console.log('✅ WhatsApp is ready!');
-    latestQR = null; // clear QR after login
+    console.log('✅ WhatsApp ready!');
+    latestQR = null; // QR no longer needed
 });
 
 // Authenticated
@@ -42,46 +61,37 @@ client.on('authenticated', () => {
 // Start client
 client.initialize();
 
-
-// 👉 NEW: Route to view QR in browser
+// QR page
 app.get('/qr', (req, res) => {
-    if (!latestQR) {
-        return res.send('⏳ QR not available yet or already scanned. Refresh.');
-    }
-
+    if (!latestQR) return res.send('⏳ QR not ready or already scanned.');
     res.send(`
         <html>
             <body style="text-align:center; font-family:sans-serif;">
                 <h2>Scan QR with WhatsApp</h2>
                 <img src="${latestQR}" />
-                <p>Open WhatsApp → Linked Devices → Link a Device</p>
+                <p>WhatsApp → Linked Devices → Link a Device</p>
             </body>
         </html>
     `);
 });
 
-
+// API to send message
 app.post('/send', async (req, res) => {
     try {
         let { phone, message } = req.body;
+        if (!phone || !message) return res.status(400).send('phone and message required');
 
-        if (!phone || !message) {
-            return res.status(400).send('phone and message required');
-        }
-
-        // Clean number
         phone = phone.replace(/\D/g, '');
-
-        // Format
         const chatId = `${phone}@c.us`;
 
-        await client.sendMessage(chatId, message);
+        // Add to queue
+        messageQueue.push({ chatId, message });
+        processQueue();
 
-        console.log(`✅ Sent to ${chatId}`);
-        res.send('✅ Message sent');
+        res.send('✅ Message queued');
     } catch (err) {
-        console.error('❌ Error sending message:', err);
-        res.status(500).send('Failed to send message');
+        console.error('❌ Failed to queue message:', err);
+        res.status(500).send('Failed to queue message');
     }
 });
 
