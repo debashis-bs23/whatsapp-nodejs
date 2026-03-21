@@ -13,7 +13,7 @@ const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
         headless: true,
-        executablePath: puppeteer.executablePath(), // use Puppeteer's Chromium
+        executablePath: puppeteer.executablePath(),
         args: ['--no-sandbox', '--disable-setuid-sandbox']
     }
 });
